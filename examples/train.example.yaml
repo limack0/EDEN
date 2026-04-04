@@ -1,0 +1,7 @@
+# Example for: eden train --config examples/train.example.yaml
+epochs: 15
+lr: 0.001
+batch_size: 128
+eggroll: false
+log_batch_every: 0
+verbose: false

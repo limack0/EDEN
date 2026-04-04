@@ -1,0 +1,32 @@
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Data & results (large files)
+.data/
+eden_results/
+*.zip
+*.pt
+*.pth
+
+# Logs
+*.log
+nohup.out
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# GitHub Copilot instructions (private)
+.github/instructions/codacy.instructions.md
