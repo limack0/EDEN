@@ -65,14 +65,15 @@ class EDENNetwork(nn.Module):
         self.num_classes = num_classes
         self.flags = flags or AblationFlags()
         h, w = image_hw
-        # compute flat_dim first so auto-scale can use it
+        # build embed first (preserves original RNG order for weight init)
+        self.embed = nn.Sequential(
+            nn.Conv2d(in_channels, 32, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+        )
         with torch.no_grad():
-            _dummy_channels = in_channels
-            _dummy_embed = nn.Sequential(
-                nn.Conv2d(_dummy_channels, 32, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            )
-            _flat = _dummy_embed(torch.zeros(1, in_channels, h, w)).numel()
+            _flat = self.embed(torch.zeros(1, in_channels, h, w)).numel()
+        self.flat_dim = _flat
+        # auto-scale after embed so RNG state is identical to original
         _auto_hidden, _auto_nodes, _auto_stems = _auto_scale(_flat, num_classes)
         hidden = hidden if hidden is not None else _auto_hidden
         n_nodes = n_nodes if n_nodes is not None else _auto_nodes
@@ -80,8 +81,6 @@ class EDENNetwork(nn.Module):
         self.n_nodes = n_nodes
         self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
         self.hidden = hidden
-        self.embed = _dummy_embed
-        self.flat_dim = _flat
         self.stem_pool = StemPool(
             self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
         )
@@ -192,7 +191,7 @@ class SequenceEDENNetwork(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.flags = flags or AblationFlags()
-        _flat = 512  # fixed projection dim for sequences
+        # resolve dims before any nn.Parameter is created so RNG order is stable
         _auto_hidden, _auto_nodes, _auto_stems = _auto_scale(seq_len, num_classes)
         hidden = hidden if hidden is not None else _auto_hidden
         n_nodes = n_nodes if n_nodes is not None else _auto_nodes
@@ -201,7 +200,7 @@ class SequenceEDENNetwork(nn.Module):
         self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
         self.hidden = hidden
         self.in_proj = nn.Linear(seq_len, 512)
-        self.flat_dim = _flat
+        self.flat_dim = 512
         self.stem_pool = StemPool(
             self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
         )

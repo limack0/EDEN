@@ -24,7 +24,8 @@ def test_spiral_train_reaches_reasonable_accuracy() -> None:
     )
     tr_l = DataLoader(tr, batch_size=32, shuffle=True)
     va_l = DataLoader(va, batch_size=32, shuffle=False)
-    model = SequenceEDENNetwork(2, 2, flags=AblationFlags(), max_stems=12)
+    # pin architecture to original defaults: spiral is tiny, auto-scale would give max_stems=24
+    model = SequenceEDENNetwork(2, 2, flags=AblationFlags(), hidden=128, n_nodes=8, max_stems=12)
     reg = GeneRegulator()
     epi = HeritableEpigenome()
     # EDEN has many non-linear biological paths; a plain MLP reaches ~0.98 on this spiral,
