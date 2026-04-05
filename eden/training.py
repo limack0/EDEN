@@ -239,7 +239,7 @@ def train_eden(
         stagnation_det = None
 
     log.info(
-        "train start | device=%s | params=%d | epochs %d→%d | batches train=%d val=%d | eggroll=%s | resume=%s",
+        "train start | device=%s | params=%d | epochs %d->%d | batches train=%d val=%d | eggroll=%s | resume=%s",
         device,
         count_parameters(model),
         epoch_start,
