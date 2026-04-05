@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -29,36 +30,58 @@ class EDENOutput:
     morphogen: torch.Tensor
 
 
+def _auto_scale(flat_dim: int, num_classes: int) -> tuple[int, int, int]:
+    """Derive hidden, n_nodes, max_stems from data complexity.
+
+    Rules:
+    - hidden   : bucketed by input size (small=128, medium=256, large=512)
+    - n_nodes  : logarithmic with num_classes so CIFAR-100 doesn't explode
+    - max_stems: 3× n_nodes, capped at 96
+    """
+    if flat_dim < 4_000:
+        hidden = 128
+    elif flat_dim < 10_000:
+        hidden = 256
+    else:
+        hidden = 512
+    n_nodes = min(32, max(8, int(math.log2(num_classes + 1)) * 4))
+    max_stems = min(96, n_nodes * 3)
+    return hidden, n_nodes, max_stems
+
+
 class EDENNetwork(nn.Module):
     def __init__(
         self,
         num_classes: int,
         in_channels: int = 1,
         image_hw: tuple[int, int] = (28, 28),
-        hidden: int = 128,
-        n_nodes: int = 8,
+        hidden: int | None = None,
+        n_nodes: int | None = None,
         flags: AblationFlags | None = None,
-        max_pathway_nodes: int = 24,
-        max_stems: int = 12,
+        max_pathway_nodes: int | None = None,
+        max_stems: int | None = None,
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
         self.flags = flags or AblationFlags()
-        self.n_nodes = n_nodes
-        self.max_pathway_nodes = max(max(1, max_pathway_nodes), n_nodes)
-        self.hidden = hidden
         h, w = image_hw
-        self.embed = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-        )
+        # compute flat_dim first so auto-scale can use it
         with torch.no_grad():
-            d = self.embed(torch.zeros(1, in_channels, h, w)).numel()
-        self.flat_dim = d
+            _dummy_channels = in_channels
+            _dummy_embed = nn.Sequential(
+                nn.Conv2d(_dummy_channels, 32, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+                nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            )
+            _flat = _dummy_embed(torch.zeros(1, in_channels, h, w)).numel()
+        _auto_hidden, _auto_nodes, _auto_stems = _auto_scale(_flat, num_classes)
+        hidden = hidden if hidden is not None else _auto_hidden
+        n_nodes = n_nodes if n_nodes is not None else _auto_nodes
+        max_stems = max_stems if max_stems is not None else _auto_stems
+        self.n_nodes = n_nodes
+        self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
+        self.hidden = hidden
+        self.embed = _dummy_embed
+        self.flat_dim = _flat
         self.stem_pool = StemPool(
             self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
         )
@@ -160,20 +183,25 @@ class SequenceEDENNetwork(nn.Module):
         self,
         num_classes: int,
         seq_len: int,
-        hidden: int = 128,
-        n_nodes: int = 8,
+        hidden: int | None = None,
+        n_nodes: int | None = None,
         flags: AblationFlags | None = None,
-        max_pathway_nodes: int = 24,
-        max_stems: int = 12,
+        max_pathway_nodes: int | None = None,
+        max_stems: int | None = None,
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
         self.flags = flags or AblationFlags()
+        _flat = 512  # fixed projection dim for sequences
+        _auto_hidden, _auto_nodes, _auto_stems = _auto_scale(seq_len, num_classes)
+        hidden = hidden if hidden is not None else _auto_hidden
+        n_nodes = n_nodes if n_nodes is not None else _auto_nodes
+        max_stems = max_stems if max_stems is not None else _auto_stems
         self.n_nodes = n_nodes
-        self.max_pathway_nodes = max(max(1, max_pathway_nodes), n_nodes)
+        self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
         self.hidden = hidden
         self.in_proj = nn.Linear(seq_len, 512)
-        self.flat_dim = 512
+        self.flat_dim = _flat
         self.stem_pool = StemPool(
             self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
         )
