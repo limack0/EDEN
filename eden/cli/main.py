@@ -249,34 +249,23 @@ def ablation(
     setup_cli_logging(quiet=quiet, verbose=verbose)
     data_root = Path(os.environ.get("EDEN_DATA", ".data"))
     out = Path(output) / f"ablation_{mechanism}"
+    _seq_datasets = {"ecg", "protein"}
     deltas: list[float] = []
     for s in range(seeds):
         set_seed(s)
         flags = _flags_from_mechanism(mechanism)
-        tr_l, va_l, meta = datasets.get_torchvision_loaders(dataset, data_root, 64)
-        model = EDENNetwork(
-            int(meta["num_classes"]),
-            int(meta["in_channels"]),
-            tuple(meta["image_hw"]),
-            flags=flags,
-        )
+        if dataset in _seq_datasets:
+            tr_l, va_l, meta = datasets.get_sequence_loaders(dataset, 64, seed=s)
+            def _make_model(f: AblationFlags) -> SequenceEDENNetwork:
+                return SequenceEDENNetwork(int(meta["num_classes"]), int(meta["seq_len"]), flags=f)
+        else:
+            tr_l, va_l, meta = datasets.get_torchvision_loaders(dataset, data_root, 64)
+            def _make_model(f: AblationFlags) -> EDENNetwork:
+                return EDENNetwork(int(meta["num_classes"]), int(meta["in_channels"]), tuple(meta["image_hw"]), flags=f)
         reg = GeneRegulator()
         epi = HeritableEpigenome()
-        base_flags = AblationFlags()
-        m0 = train_eden(
-            EDENNetwork(
-                int(meta["num_classes"]),
-                int(meta["in_channels"]),
-                tuple(meta["image_hw"]),
-                flags=base_flags,
-            ),
-            GeneRegulator(),
-            HeritableEpigenome(),
-            tr_l,
-            va_l,
-            epochs,
-        )
-        m1 = train_eden(model, reg, epi, tr_l, va_l, epochs)
+        m0 = train_eden(_make_model(AblationFlags()), GeneRegulator(), HeritableEpigenome(), tr_l, va_l, epochs)
+        m1 = train_eden(_make_model(flags), reg, epi, tr_l, va_l, epochs)
         deltas.append(m1["final_val_accuracy"] - m0["final_val_accuracy"])
     rep = {"mechanism": mechanism, "delta_accuracy_mean": sum(deltas) / len(deltas), "per_seed": deltas}
     out.mkdir(parents=True, exist_ok=True)
