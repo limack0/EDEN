@@ -25,22 +25,20 @@ def _flags_from_mechanism(mechanism: str, base: AblationFlags | None = None) -> 
     m = mechanism.lower().replace("-", "_")
     if m == "microglia":
         f.microglia = False
-    elif m == "paracrine":
-        f.paracrine = False
     elif m == "contact_inhibition":
         f.contact_inhibition = False
     elif m == "hox_waves":
         f.hox_waves = False
     elif m == "programmed_apoptosis":
         f.programmed_apoptosis = False
-    elif m == "neurogenesis":
-        f.neurogenesis = False
     elif m == "epigenome_drift":
         f.epigenome_drift = False
     elif m == "synaptic_pruning":
         f.synaptic_pruning = False
     elif m == "glia":
         f.glia = False
+    elif m == "node_attention":
+        f.node_attention = False
     else:
         raise click.BadParameter(f"unknown mechanism: {mechanism}")
     return f
@@ -279,7 +277,6 @@ REG_ATTRS = {
     "lambda": "lambda_",
     "k": "k_soft",
     "rho": "rho",
-    "paracrine": "paracrine_strength",
     "drift": "drift_rate_scale",
     "apoptosis": "apoptosis_theta",
     "entropy": "entropy_theta",

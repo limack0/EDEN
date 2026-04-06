@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class StemPerceptron(nn.Module):
-    def __init__(self, in_dim: int, hidden: int) -> None:
+    """Standard stem with configurable activation (default ReLU)."""
+
+    def __init__(self, in_dim: int, hidden: int, activation: nn.Module | None = None) -> None:
         super().__init__()
+        act = activation if activation is not None else nn.ReLU(inplace=True)
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden),
-            nn.ReLU(inplace=True),
+            act,
             nn.Linear(hidden, hidden),
         )
 
@@ -19,11 +23,36 @@ class StemPerceptron(nn.Module):
         return self.net(x)
 
 
+class StemPerceptronSkip(nn.Module):
+    """Stem with residual skip connection from input to output."""
+
+    def __init__(self, in_dim: int, hidden: int) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(in_dim, hidden)
+        self.fc2 = nn.Linear(hidden, hidden)
+        self.proj = nn.Linear(in_dim, hidden) if in_dim != hidden else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = F.relu(self.fc1(x))
+        return self.fc2(h) + self.proj(x)
+
+
+_STEM_ACTIVATIONS: list[nn.Module | None] = [
+    nn.ReLU(inplace=True),
+    nn.GELU(),
+    nn.SiLU(),
+    None,  # sentinel → StemPerceptronSkip
+]
+
+
 class StemPool(nn.Module):
     """
     Fixed initial stem count; optional mitosis up to ``max_stems``.
     Every `retention_interval` epochs keep top `keep` by score.
     During training, forward uses softmax weights over stem outputs.
+
+    When ``heterogeneous=True`` the four initial stems use different activations
+    (ReLU, GELU, SiLU, skip-connection), encouraging diverse representations.
     """
 
     def __init__(
@@ -34,6 +63,7 @@ class StemPool(nn.Module):
         keep: int = 2,
         retention_interval: int = 10,
         max_stems: int = 12,
+        heterogeneous: bool = False,
     ) -> None:
         super().__init__()
         self.in_dim = in_dim
@@ -41,10 +71,20 @@ class StemPool(nn.Module):
         self.keep = keep
         self.retention_interval = retention_interval
         self.max_stems = max(1, max_stems)
+        self.heterogeneous = heterogeneous
         n0 = min(n_stems, self.max_stems)
-        self.stems = nn.ModuleList(StemPerceptron(in_dim, hidden) for _ in range(n0))
+        self.stems = nn.ModuleList(self._make_stem(i) for i in range(n0))
+
         self.register_buffer("stem_scores", torch.zeros(len(self.stems)))
         self.register_buffer("active_mask", torch.ones(len(self.stems), dtype=torch.bool))
+
+    def _make_stem(self, idx: int) -> nn.Module:
+        if not self.heterogeneous:
+            return StemPerceptron(self.in_dim, self.stem_hidden)
+        act = _STEM_ACTIVATIONS[idx % len(_STEM_ACTIVATIONS)]
+        if act is None:
+            return StemPerceptronSkip(self.in_dim, self.stem_hidden)
+        return StemPerceptron(self.in_dim, self.stem_hidden, activation=act)
 
     @property
     def n_stems(self) -> int:
@@ -73,7 +113,7 @@ class StemPool(nn.Module):
         device = self.stem_scores.device
         parent_idx = int(self.stem_scores.argmax().item()) if self.stem_scores.numel() else 0
         parent_idx = max(0, min(parent_idx, self.n_stems - 1))
-        child = StemPerceptron(self.in_dim, self.stem_hidden)
+        child = self._make_stem(self.n_stems)
         child.to(device=device, dtype=next(self.stems[parent_idx].parameters()).dtype)
         with torch.no_grad():
             for (n, cp), (_, pp) in zip(child.named_parameters(), self.stems[parent_idx].named_parameters()):

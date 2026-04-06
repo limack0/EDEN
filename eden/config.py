@@ -32,39 +32,36 @@ class AblationFlags:
     """Toggle biological mechanisms for ablation studies."""
 
     microglia: bool = True
-    paracrine: bool = True
     contact_inhibition: bool = True
     hox_waves: bool = True
     programmed_apoptosis: bool = True
-    neurogenesis: bool = True
     epigenome_drift: bool = True
     synaptic_pruning: bool = True
     glia: bool = True
+    node_attention: bool = True
 
     def copy(self) -> AblationFlags:
         return AblationFlags(
             microglia=self.microglia,
-            paracrine=self.paracrine,
             contact_inhibition=self.contact_inhibition,
             hox_waves=self.hox_waves,
             programmed_apoptosis=self.programmed_apoptosis,
-            neurogenesis=self.neurogenesis,
             epigenome_drift=self.epigenome_drift,
             synaptic_pruning=self.synaptic_pruning,
             glia=self.glia,
+            node_attention=self.node_attention,
         )
 
     def to_dict(self) -> dict[str, bool]:
         return {
             "microglia": self.microglia,
-            "paracrine": self.paracrine,
             "contact_inhibition": self.contact_inhibition,
             "hox_waves": self.hox_waves,
             "programmed_apoptosis": self.programmed_apoptosis,
-            "neurogenesis": self.neurogenesis,
             "epigenome_drift": self.epigenome_drift,
             "synaptic_pruning": self.synaptic_pruning,
             "glia": self.glia,
+            "node_attention": self.node_attention,
         }
 
 

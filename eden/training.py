@@ -19,11 +19,6 @@ from eden.core.epigenome import HeritableEpigenome
 from eden.core.genome import GeneRegulator
 from eden.core.maturity import empirical_stability, maturity_score
 from eden.core.network import EDENNetwork, SequenceEDENNetwork, count_parameters
-from eden.core.neurogenesis import (
-    LocalStagnationDetector,
-    apply_neurogenesis_exploration_bump,
-    apply_neurogenesis_structural_growth,
-)
 from eden.metrics import (
     estimate_forward_flops_eden,
     kaplan_meier_style_summary,
@@ -156,7 +151,6 @@ def train_eden(
     l1_every: int = 20,
     l2_every_epochs: int = 5,
     results_dir: Path | None = None,
-    stagnation: LocalStagnationDetector | None = None,
     use_eggroll: bool = False,
     log_batches_every: int = 0,
     resume_from: Path | None = None,
@@ -231,13 +225,6 @@ def train_eden(
     red_ema = 0.5
     epochs_to_maturity: int | None = None
 
-    if stagnation is not None:
-        stagnation_det: LocalStagnationDetector | None = stagnation
-    elif model.flags.neurogenesis:
-        stagnation_det = LocalStagnationDetector()
-    else:
-        stagnation_det = None
-
     log.info(
         "train start | device=%s | params=%d | epochs %d->%d | batches train=%d val=%d | eggroll=%s | resume=%s",
         device,
@@ -299,32 +286,6 @@ def train_eden(
 
             if model.flags.epigenome_drift:
                 epigenome.drift_step(True, scale=float(reg["drift_rate_scale"].item()))
-
-            if stagnation_det is not None and stagnation_det.observe(gn):
-                state.log_event("neurogenesis_stagnation", grad_norm=gn)
-                if model.flags.neurogenesis:
-                    new_ps, grow_kind = apply_neurogenesis_structural_growth(model)
-                    if new_ps:
-                        # Pathway mitosis replaces ``node_proj`` Parameters; stem mitosis only appends a stem.
-                        if grow_kind == "neurogenesis_pathway_mitosis":
-                            opt = torch.optim.Adam(
-                                list(model.parameters())
-                                + list(regulator.parameters())
-                                + list(epigenome.parameters()),
-                                lr=lr,
-                            )
-                        else:
-                            opt.add_param_group({"params": new_ps, "lr": lr})
-                        state.log_event(
-                            grow_kind or "neurogenesis_growth",
-                            n_nodes=model.n_nodes,
-                            n_stems=model.stem_pool.n_stems,
-                        )
-                    else:
-                        apply_neurogenesis_exploration_bump(model)
-                        state.log_event("neurogenesis_bump", grad_norm=gn)
-                    if isinstance(stagnation_det, LocalStagnationDetector):
-                        stagnation_det._bad = 0
 
             if use_eggroll and (batch_idx + 1) % l1_every == 0:
                 x_es, y_es = xb.detach(), yb.detach()

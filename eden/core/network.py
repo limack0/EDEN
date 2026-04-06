@@ -16,11 +16,32 @@ from eden.core.genome import HierarchicalGenome, genome_to_gates
 from eden.core.glia import AstrocyteModulator, OligodendrocyteSheath
 from eden.core.morphogen import (
     MORPHOGEN_DIM,
-    ParacrineCascade,
     LocalMorphogen,
     activation_entropy,
 )
 from eden.core.stem import StemPool
+
+
+class NodeAttention(nn.Module):
+    """Lightweight self-attention between nodes.
+
+    Replaces paracrine signaling with a proper attention mechanism:
+    nodes coordinate without being forced to converge.
+    Residual + LayerNorm for training stability.
+    """
+
+    def __init__(self, hidden: int, n_heads: int = 4) -> None:
+        super().__init__()
+        # ensure hidden is divisible by n_heads
+        n_heads = min(n_heads, hidden)
+        while hidden % n_heads != 0:
+            n_heads -= 1
+        self.attn = nn.MultiheadAttention(hidden, n_heads, batch_first=True, dropout=0.0)
+        self.norm = nn.LayerNorm(hidden)
+
+    def forward(self, h: torch.Tensor) -> torch.Tensor:
+        out, _ = self.attn(h, h, h)
+        return self.norm(h + out)
 
 
 @dataclass
@@ -40,7 +61,7 @@ def _auto_scale(flat_dim: int, num_classes: int) -> tuple[int, int, int]:
     Rules:
     - hidden   : 128 for most inputs, 256 only for very large flat inputs (>50k)
     - n_nodes  : fixed at 8 (proven optimal across all benchmarks)
-    - max_stems: fixed at 12 (neurogenesis ceiling, original default)
+    - max_stems: fixed at 12 (stem pool ceiling)
     """
     hidden = 256 if flat_dim > 50_000 else 128
     n_nodes = 8
@@ -57,7 +78,6 @@ class EDENNetwork(nn.Module):
         hidden: int | None = None,
         n_nodes: int | None = None,
         flags: AblationFlags | None = None,
-        max_pathway_nodes: int | None = None,
         max_stems: int | None = None,
     ) -> None:
         super().__init__()
@@ -78,16 +98,16 @@ class EDENNetwork(nn.Module):
         n_nodes = n_nodes if n_nodes is not None else _auto_nodes
         max_stems = max_stems if max_stems is not None else _auto_stems
         self.n_nodes = n_nodes
-        self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
         self.hidden = hidden
         self.stem_pool = StemPool(
-            self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
+            self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10,
+            max_stems=max_stems, heterogeneous=True,
         )
         self.node_proj = nn.Linear(hidden, n_nodes * hidden)
+        self.node_attn = NodeAttention(hidden)
         self.diff = DifferentiationPhi(hidden)
         self.morphogen = LocalMorphogen()
         self.morph_to_hidden = nn.Linear(MORPHOGEN_DIM, hidden)
-        self.paracrine = ParacrineCascade(k=3)
         self.astro = AstrocyteModulator(hidden)
         self.oligo = OligodendrocyteSheath(hidden)
         self.micro = MicrogliaCompetition()
@@ -126,8 +146,8 @@ class EDENNetwork(nn.Module):
         morph = self.morphogen.compute(h, gl, ga)
         h = h + 0.1 * self.morph_to_hidden(morph)
 
-        if self.flags.paracrine:
-            h = self.paracrine(h, regulator["paracrine_strength"])
+        if self.flags.node_attention:
+            h = self.node_attn(h)
 
         h = self.diff(h, regulator, self.flags.hox_waves)
         if self.flags.glia:
@@ -184,7 +204,6 @@ class SequenceEDENNetwork(nn.Module):
         hidden: int | None = None,
         n_nodes: int | None = None,
         flags: AblationFlags | None = None,
-        max_pathway_nodes: int | None = None,
         max_stems: int | None = None,
     ) -> None:
         super().__init__()
@@ -196,18 +215,18 @@ class SequenceEDENNetwork(nn.Module):
         n_nodes = n_nodes if n_nodes is not None else _auto_nodes
         max_stems = max_stems if max_stems is not None else _auto_stems
         self.n_nodes = n_nodes
-        self.max_pathway_nodes = max(max(1, max_pathway_nodes or (n_nodes * 3)), n_nodes)
         self.hidden = hidden
         self.in_proj = nn.Linear(seq_len, 512)
         self.flat_dim = 512
         self.stem_pool = StemPool(
-            self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10, max_stems=max_stems
+            self.flat_dim, hidden, n_stems=4, keep=2, retention_interval=10,
+            max_stems=max_stems, heterogeneous=True,
         )
         self.node_proj = nn.Linear(hidden, n_nodes * hidden)
+        self.node_attn = NodeAttention(hidden)
         self.diff = DifferentiationPhi(hidden)
         self.morphogen = LocalMorphogen()
         self.morph_to_hidden = nn.Linear(MORPHOGEN_DIM, hidden)
-        self.paracrine = ParacrineCascade(k=3)
         self.astro = AstrocyteModulator(hidden)
         self.oligo = OligodendrocyteSheath(hidden)
         self.micro = MicrogliaCompetition()
@@ -238,8 +257,8 @@ class SequenceEDENNetwork(nn.Module):
         ga = training_state.last_accuracy if training_state else 0.0
         morph = self.morphogen.compute(h, gl, ga)
         h = h + 0.1 * self.morph_to_hidden(morph)
-        if self.flags.paracrine:
-            h = self.paracrine(h, regulator["paracrine_strength"])
+        if self.flags.node_attention:
+            h = self.node_attn(h)
         h = self.diff(h, regulator, self.flags.hox_waves)
         if self.flags.glia:
             h = self.astro(h)
