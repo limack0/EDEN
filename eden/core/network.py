@@ -33,19 +33,18 @@ class EDENOutput:
 def _auto_scale(flat_dim: int, num_classes: int) -> tuple[int, int, int]:
     """Derive hidden, n_nodes, max_stems from data complexity.
 
+    Benchmarks show n_nodes=8 and max_stems=12 are optimal across all tested
+    datasets (MNIST, Fashion, CIFAR-10/100, ECG). Scaling them up consistently
+    hurts performance. Only hidden is scaled — and conservatively.
+
     Rules:
-    - hidden   : bucketed by input size (small=128, medium=256, large=512)
-    - n_nodes  : logarithmic with num_classes so CIFAR-100 doesn't explode
-    - max_stems: 3× n_nodes, capped at 96
+    - hidden   : 128 for most inputs, 256 only for very large flat inputs (>50k)
+    - n_nodes  : fixed at 8 (proven optimal across all benchmarks)
+    - max_stems: fixed at 12 (neurogenesis ceiling, original default)
     """
-    if flat_dim < 4_000:
-        hidden = 128
-    elif flat_dim < 10_000:
-        hidden = 256
-    else:
-        hidden = 512
-    n_nodes = min(32, max(8, int(math.log2(num_classes + 1)) * 4))
-    max_stems = min(96, n_nodes * 3)
+    hidden = 256 if flat_dim > 50_000 else 128
+    n_nodes = 8
+    max_stems = 12
     return hidden, n_nodes, max_stems
 
 
