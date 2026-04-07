@@ -59,11 +59,11 @@ def _auto_scale(flat_dim: int, num_classes: int) -> tuple[int, int, int]:
     hurts performance. Only hidden is scaled — and conservatively.
 
     Rules:
-    - hidden   : 256 for flat_dim > 4000 (CIFAR-level), 128 otherwise (MNIST-level)
+    - hidden   : 256 for flat_dim > 1500 (CIFAR-level), 128 otherwise (MNIST-level)
     - n_nodes  : fixed at 8 (proven optimal across all benchmarks)
     - max_stems: fixed at 12 (stem pool ceiling)
     """
-    hidden = 256 if flat_dim > 4_000 else 128
+    hidden = 256 if flat_dim > 1_500 else 128
     n_nodes = 8
     max_stems = 12
     return hidden, n_nodes, max_stems
@@ -93,6 +93,7 @@ class EDENNetwork(nn.Module):
         if h >= 32:
             _embed_layers += [
                 nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+                nn.AdaptiveAvgPool2d(4),  # cap spatial size → flat_dim=128*4*4=2048
             ]
         self.embed = nn.Sequential(*_embed_layers)
         with torch.no_grad():
