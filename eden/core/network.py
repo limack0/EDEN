@@ -59,11 +59,11 @@ def _auto_scale(flat_dim: int, num_classes: int) -> tuple[int, int, int]:
     hurts performance. Only hidden is scaled — and conservatively.
 
     Rules:
-    - hidden   : 128 for most inputs, 256 only for very large flat inputs (>50k)
+    - hidden   : 256 for flat_dim > 4000 (CIFAR-level), 128 otherwise (MNIST-level)
     - n_nodes  : fixed at 8 (proven optimal across all benchmarks)
     - max_stems: fixed at 12 (stem pool ceiling)
     """
-    hidden = 256 if flat_dim > 50_000 else 128
+    hidden = 256 if flat_dim > 4_000 else 128
     n_nodes = 8
     max_stems = 12
     return hidden, n_nodes, max_stems
@@ -85,10 +85,16 @@ class EDENNetwork(nn.Module):
         self.flags = flags or AblationFlags()
         h, w = image_hw
         # build embed first (preserves original RNG order for weight init)
-        self.embed = nn.Sequential(
+        # 3rd conv block (no pool) added for images >= 32x32 to extract richer features
+        _embed_layers: list[nn.Module] = [
             nn.Conv2d(in_channels, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.MaxPool2d(2),
             nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-        )
+        ]
+        if h >= 32:
+            _embed_layers += [
+                nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True),
+            ]
+        self.embed = nn.Sequential(*_embed_layers)
         with torch.no_grad():
             _flat = self.embed(torch.zeros(1, in_channels, h, w)).numel()
         self.flat_dim = _flat
