@@ -170,12 +170,15 @@ def train_eden(
     regulator.to(device)
     epigenome.to(device)
 
-    opt = torch.optim.Adam(
+    opt = torch.optim.AdamW(
         list(model.parameters()) + list(regulator.parameters()) + list(epigenome.parameters()),
-        lr=lr,
+        lr=lr, weight_decay=1e-4,
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.01)
-    ce = nn.CrossEntropyLoss()
+    _warmup_epochs = min(5, max(1, epochs // 20))
+    _warmup = torch.optim.lr_scheduler.LinearLR(opt, start_factor=0.1, end_factor=1.0, total_iters=_warmup_epochs)
+    _cosine = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(1, epochs - _warmup_epochs), eta_min=lr * 0.01)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(opt, schedulers=[_warmup, _cosine], milestones=[_warmup_epochs])
+    ce = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     if dry_run and resume_from:
         log.warning("dry-run: ignoring --resume")
