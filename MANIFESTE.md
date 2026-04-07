@@ -131,6 +131,24 @@ Le `StemPool` reste : il n'est pas concerné par la neurogenèse dynamique. Les 
 
 ---
 
+## CIFAR-10 — Historique des tentatives
+
+| Version | Changements | Mean acc | Note |
+|---------|-------------|----------|------|
+| v1 | base, 50 epochs | 0.6741 | baseline |
+| v2 | +augmentation, +BatchNorm, 100 epochs | 0.6759 | Δ=+0.0018, embed trop léger |
+| v3a | +3ème bloc conv (flat_dim=8192) | 0.2844 | **échec** — Linear(8192,256) instable, 3/5 seeds à 0.1 |
+| v3b | +AdaptiveAvgPool(4) → flat_dim=2048 | *en attente GPU* | fix stabilité |
+
+**Leçon** : augmenter la capacité du CNN embed est nécessaire, mais il faut contrôler la dimension de sortie avant le `StemPool`. Un `Linear(D_large, hidden)` non normalisé avec D_large >> hidden provoque une instabilité d'initialisation sévère.
+
+**Stack actuel** (v3b, non validé sur GPU) :
+- Dropout 0.1 dans `DifferentiationPhi` entre les stades θ/α/γ
+- Cosine annealing LR (1e-3 → 1e-5 sur T_max epochs)
+- CNN embed adaptatif : 3 blocs pour images ≥ 32×32, AdaptiveAvgPool(4) pour cap flat_dim
+
+---
+
 ## Idées Futures
 
 ### Stems spécialisés (Mixture of Experts léger)

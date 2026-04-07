@@ -174,6 +174,7 @@ def train_eden(
         list(model.parameters()) + list(regulator.parameters()) + list(epigenome.parameters()),
         lr=lr,
     )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=lr * 0.01)
     ce = nn.CrossEntropyLoss()
 
     if dry_run and resume_from:
@@ -380,6 +381,7 @@ def train_eden(
             eggroll_l2_step(regulator, metric, lr=0.005, sigma=0.05, n_pairs=10, maximize=True)
             model.train()
 
+        scheduler.step()
         epochs_completed = epoch + 1
         if checkpoint_out and checkpoint_every > 0 and epochs_completed % checkpoint_every == 0:
             save_eden_training_checkpoint(
