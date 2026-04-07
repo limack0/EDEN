@@ -90,14 +90,16 @@ def get_torchvision_loaders(
         test = datasets.FashionMNIST(data_root, train=False, download=True, transform=tfm)
         meta["num_classes"] = 10
     elif name == "cifar10":
-        tfm = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),
-            ]
-        )
-        train = datasets.CIFAR10(data_root, train=True, download=True, transform=tfm)
-        test = datasets.CIFAR10(data_root, train=False, download=True, transform=tfm)
+        _norm = transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616))
+        tfm_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            _norm,
+        ])
+        tfm_test = transforms.Compose([transforms.ToTensor(), _norm])
+        train = datasets.CIFAR10(data_root, train=True, download=True, transform=tfm_train)
+        test = datasets.CIFAR10(data_root, train=False, download=True, transform=tfm_test)
         meta.update({"num_classes": 10, "in_channels": 3, "image_hw": (32, 32)})
     elif name == "cifar100":
         tfm = transforms.Compose(

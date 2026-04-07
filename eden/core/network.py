@@ -86,8 +86,8 @@ class EDENNetwork(nn.Module):
         h, w = image_hw
         # build embed first (preserves original RNG order for weight init)
         self.embed = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.Conv2d(in_channels, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True), nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(2),
         )
         with torch.no_grad():
             _flat = self.embed(torch.zeros(1, in_channels, h, w)).numel()
