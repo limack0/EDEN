@@ -265,7 +265,10 @@ def train_eden(
             out = model(xb, reg, mvec, state)
             loss = ce(out.logits, yb)
             loss.backward()
-            gn = sum(p.grad.norm().item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
+            gn = nn.utils.clip_grad_norm_(
+                list(model.parameters()) + list(regulator.parameters()) + list(epigenome.parameters()),
+                max_norm=1.0,
+            ).item()
             grad_accum += gn
             n_batches += 1
             opt.step()

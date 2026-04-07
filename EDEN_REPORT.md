@@ -95,6 +95,7 @@ Input               │         EDENNetwork              │
 - **AdamW** (weight_decay=1e-4)
 - **Warmup linéaire** 5 epochs (LR × 0.1 → LR)
 - **Cosine annealing** (LR → LR × 0.01)
+- **Gradient clipping** max_norm=1.0 (stabilise les grands modèles)
 - **Eggroll L1/L2** optionnel (évolution des paramètres régulateurs)
 - **Label smoothing** 0.1
 
@@ -130,16 +131,23 @@ La robustesse adversariale d'EDEN est particulièrement notable : 24/24 exemples
 
 La variance divisée par 6 est aussi significative que le gain en précision : EDEN v2 est **reproductible** quelle que soit l'initialisation aléatoire.
 
-### 3.3 CIFAR-10 (5 seeds, 50 epochs, GPU — sans améliorations v3)
+### 3.3 CIFAR-10 — Historique des versions Kaggle
 
-| Modèle | Mean acc |
-|--------|----------|
+| Version | flat_dim | hidden | Params | Seeds | Epochs | Mean | Std | Notes |
+|---------|----------|--------|--------|-------|--------|------|-----|-------|
+| v1 | 4096 | 128 | 2.4M | 5 | 50 | 0.6741 | — | 2 conv, sans augment |
+| v2 | 4096 | 128 | 2.4M | 5 | 100 | 0.6759 | 0.0078 | +augment+BN, stable |
+| v3 (bug) | 8192 | 256 | 11.9M | 5 | 100 | 0.2844 | 0.2554 | **3 seeds à 10%** — 3ème conv sans AdaptiveAvgPool |
+| **v4 (actuel)** | **2048** | **256** | **~4M** | 5 | 100 | **en attente** | — | +AdaptiveAvgPool4+grad_clip |
+
+**Leçon v3 → v4** : Augmenter flat_dim de 4096 à 8192 sans contrôle de dimension avec hidden=256 donne un `Linear(8192→256)` mal conditionné (ratio 32:1). Sans gradient clipping, 3/5 seeds s'effondrent à 10% (chance aléatoire). La correction : `AdaptiveAvgPool2d(4)` ramène flat_dim à 2048, et `clip_grad_norm_(max_norm=1.0)` prévient les explosions de gradient.
+
+| Modèle | CIFAR-10 acc |
+|--------|-------------|
 | MLP simple | ~55% |
 | **EDEN v2** | **67.4%** |
 | LeNet-5 | ~70% |
 | ResNet-8 | ~85% |
-
-EDEN se positionne entre MLP et LeNet-5 sur CIFAR-10 sans data augmentation ni embed approfondi. Les améliorations v3 (embed 3 blocs + AdaptiveAvgPool + dropout + cosine annealing) sont implémentées mais en attente de validation GPU.
 
 ### 3.4 ECG — Ablation individuelle (3 seeds, 50 epochs)
 
@@ -171,7 +179,12 @@ EDEN se positionne entre MLP et LeNet-5 sur CIFAR-10 sans data augmentation ni e
 
 ### 4.3 Leçon CIFAR-10
 
-Augmenter `flat_dim` sans contrôle de dimension provoque une instabilité sévère. Un `Linear(8192, 256)` dans `StemPool` avec D_entrée >> D_sortie et sans normalisation intermédiaire conduit à 3/5 seeds bloquées au niveau aléatoire (10%). La solution : `AdaptiveAvgPool2d(4)` pour plafonner `flat_dim` à 2048 quelle que soit la résolution d'entrée.
+Augmenter `flat_dim` sans contrôle de dimension provoque une instabilité sévère. Un `Linear(8192, 256)` dans `StemPool` avec D_entrée >> D_sortie et sans normalisation intermédiaire conduit à 3/5 seeds bloquées au niveau aléatoire (10%). Deux corrections complémentaires :
+
+1. **`AdaptiveAvgPool2d(4)`** : plafonne `flat_dim` à 2048 quelle que soit la résolution d'entrée
+2. **`clip_grad_norm_(max_norm=1.0)`** : empêche les explosions de gradient au début de l'entraînement sur les couches larges
+
+Ces deux fixes sont maintenant intégrés dans le code (commits `203483f` et suivant). Le run Kaggle v4 validera la correction.
 
 ---
 
@@ -209,7 +222,7 @@ mean-pool → Linear(hidden, num_classes)
 
 ## 6. Limites Actuelles
 
-1. **CIFAR-10 non validé** : Les améliorations v3 (embed 3 blocs, dropout, cosine LR) sont implémentées mais le run GPU est en attente de quota. La performance cible est 75-80%.
+1. **CIFAR-10 v4 en attente** : L'architecture corrigée (flat_dim=2048 + gradient clipping) est implémentée. Le run Kaggle v4 est prêt (`scripts/kaggle_cifar10_v4.py`). La performance attendue est ≥67.5% (stable, sans effondrements).
 
 2. **Ablation node_attention vs stems hétérogènes** : Le gain +7.93% sur MNIST est attribué conjointement aux deux mécanismes. Un script d'ablation est prêt (`kaggle_ablation_v2.py`) mais non encore exécuté.
 
@@ -224,7 +237,7 @@ mean-pool → Linear(hidden, num_classes)
 ## 7. Directions Futures
 
 ### Court terme (expériences prêtes)
-- Valider CIFAR-10 v3 (quota GPU)
+- **Valider CIFAR-10 v4** (`kaggle_cifar10_v4.py`) — attend quota GPU
 - Ablation node_attention vs stems hétérogènes
 - Benchmark Fashion-MNIST
 
