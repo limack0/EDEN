@@ -4,9 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eden-emergent"
-version = "1.0.0"
-description = "EDEN v1.0 — Emergent Developmental Encoding Network"
+version = "2.0.0"
+description = "EDEN — Emergent Developmental Encoding Network: biologically-inspired PyTorch architecture"
 readme = "README.md"
+license = { text = "Research / Educational Use" }
+authors = [{ name = "limack0" }]
+keywords = ["deep-learning", "neural-network", "biological-development", "pytorch", "neuroevolution"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
@@ -16,6 +28,11 @@ dependencies = [
     "matplotlib>=3.7",
     "seaborn>=0.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/limack0/EDEN"
+Repository = "https://github.com/limack0/EDEN"
+"Bug Tracker" = "https://github.com/limack0/EDEN/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "pytest-cov>=4.1"]
