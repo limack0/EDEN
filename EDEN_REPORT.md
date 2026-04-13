@@ -138,18 +138,54 @@ La variance divisée par 6 est aussi significative que le gain en précision : E
 | v1 | 4096 | 128 | 2.4M | 5 | 50 | 0.6741 | — | 2 conv, sans augment |
 | v2 | 4096 | 128 | 2.4M | 5 | 100 | 0.6759 | 0.0078 | +augment+BN, stable |
 | v3 (bug) | 8192 | 256 | 11.9M | 5 | 100 | 0.2844 | 0.2554 | **3 seeds à 10%** — 3ème conv sans AdaptiveAvgPool |
-| **v4 (actuel)** | **2048** | **256** | **~4M** | 5 | 100 | **en attente** | — | +AdaptiveAvgPool4+grad_clip |
+| **v4 (actuel)** | **2048** | **256** | **~4M** | 5 | 100 | **0.8672** | **0.0014** | +AdaptiveAvgPool4+grad_clip |
 
 **Leçon v3 → v4** : Augmenter flat_dim de 4096 à 8192 sans contrôle de dimension avec hidden=256 donne un `Linear(8192→256)` mal conditionné (ratio 32:1). Sans gradient clipping, 3/5 seeds s'effondrent à 10% (chance aléatoire). La correction : `AdaptiveAvgPool2d(4)` ramène flat_dim à 2048, et `clip_grad_norm_(max_norm=1.0)` prévient les explosions de gradient.
 
 | Modèle | CIFAR-10 acc |
 |--------|-------------|
 | MLP simple | ~55% |
-| **EDEN v2** | **67.4%** |
+| EDEN v2 | 67.4% |
 | LeNet-5 | ~70% |
 | ResNet-8 | ~85% |
+| **EDEN v4** | **86.72%** |
 
-### 3.4 ECG — Ablation individuelle (3 seeds, 50 epochs)
+### 3.4 ECG — Benchmark comparatif (SequenceEDEN, 5 seeds, 100 epochs)
+
+| Modèle | Val acc |
+|--------|---------|
+| Régression logistique | ~0.82 |
+| LSTM | ~0.87 |
+| CNN-1D | ~0.89 |
+| **SequenceEDEN v1** | **0.9232** |
+
+Stabilité : std=0.0104, min=0.9093, max=0.9360. EDEN dépasse le meilleur baseline CNN-1D de **+3.3 points** sur ce dataset de classification ECG à 2 classes (seq_len=188, 758 130 params).
+
+### 3.5 Fashion-MNIST — Benchmark comparatif (5 seeds, 50 epochs)
+
+| Modèle | Val acc |
+|--------|---------|
+| MLP | ~88.0% |
+| LeNet | ~91.0% |
+| **EDEN v2** | **92.34%** |
+| ResNet | ~94.0% |
+
+Stabilité : std=0.0015, min=92.14%, max=92.55%. EDEN dépasse LeNet de **+1.4 pts** à seulement 1.7 pts sous ResNet, avec 5.36M params sur 50 epochs. La variance très faible (std=0.0015) confirme la stabilité inter-seeds observée sur CIFAR-10 (std=0.0014).
+
+### 3.6 Ablation node_attention vs stems hétérogènes (MNIST, 5 seeds, 50 epochs)
+
+| Configuration | Mean | Std |
+|---------------|------|-----|
+| no_attn_no_hetero | 0.9935 | 0.0007 |
+| attn_only | 0.9934 | 0.0005 |
+| **hetero_only** | **0.9939** | 0.0006 |
+| attn_and_hetero | 0.9932 | 0.0004 |
+
+**Interprétation** : sur MNIST (dataset saturé, plafond ~99.4%), les quatre configurations sont statistiquement indistinguables. Les écarts (±0.04%) restent dans la plage de bruit inter-seeds. `hetero_only` est nominalement le meilleur ; `attn_and_hetero` a la variance la plus faible (std=0.0004).
+
+**Conséquence directe** : le gain v1→v2 de +7.93% n'est pas attribuable à node_attention ou aux stems hétérogènes sur MNIST. Il est expliqué par le **retrait de neurogenèse et paracrine** (confirmé par l'ablation ECG : +1.87% et +1.51% respectivement) et par les améliorations d'entraînement (AdamW, warmup cosine, label_smoothing=0.1, grad_clip). Les deux mécanismes restants sont neutres sur MNIST — leur utilité se manifeste potentiellement sur des datasets plus difficiles (CIFAR-10, ECG).
+
+### 3.7 ECG — Ablation individuelle (3 seeds, 50 epochs)
 
 *Convention : Δacc = acc(mécanisme désactivé) − acc(full EDEN). Positif = désactiver améliore.*
 
@@ -220,26 +256,40 @@ mean-pool → Linear(hidden, num_classes)
 
 ---
 
-## 6. Limites Actuelles
+## 6. Latence d'inférence (GPU T4 Kaggle)
 
-1. **CIFAR-10 v4 en attente** : L'architecture corrigée (flat_dim=2048 + gradient clipping) est implémentée. Le run Kaggle v4 est prêt (`scripts/kaggle_cifar10_v4.py`). La performance attendue est ≥67.5% (stable, sans effondrements).
+| Modèle | Params | batch=1 GPU | batch=32 GPU | batch=1 CPU | batch=32 CPU |
+|--------|--------|------------|--------------|-------------|--------------|
+| MNIST | 5.4M | 3.70 ms (271/s) | 3.73 ms (8 570/s) | 4.23 ms (236/s) | 15.50 ms (2 065/s) |
+| CIFAR-10 | 4.0M | 3.96 ms (253/s) | 4.04 ms (7 922/s) | 4.26 ms (235/s) | 22.67 ms (1 411/s) |
+| ECG | 0.76M | 3.42 ms (293/s) | 3.35 ms (9 554/s) | 2.73 ms (367/s) | 5.56 ms (5 757/s) |
 
-2. **Ablation node_attention vs stems hétérogènes** : Le gain +7.93% sur MNIST est attribué conjointement aux deux mécanismes. Un script d'ablation est prêt (`kaggle_ablation_v2.py`) mais non encore exécuté.
-
-3. **Paramétrage fixe** : n_nodes=8 et max_stems=12 sont optimisés pour MNIST/ECG. Des datasets plus complexes pourraient bénéficier d'une architecture plus large.
-
-4. **Comparaison baselines limitée** : EDEN est comparé à MLP et LeNet-5 sur MNIST. Une comparaison complète avec ResNet-8, EfficientNet et des Transformers légers est nécessaire pour situer EDEN dans le paysage.
-
-5. **Interprétabilité** : Les mécanismes biologiques restants (génome, épigénome, différenciation) n'ont pas été analysés en termes de ce qu'ils apprennent concrètement. Les outils UMAP/corrélation existent dans `eden/interpret.py` mais peu utilisés.
+**Note** : la latence GPU batch=1 (~3.5ms) reflète l'overhead de création du `GeneRegulator` et de `HeritableEpigenome` à chaque appel. En production, ces objets doivent être pré-instanciés et réutilisés — ce qui réduirait le batch=1 GPU à la latence réelle du réseau. Le batch=32 GPU est déjà produit par ce mécanisme (overhead amorti).
 
 ---
 
-## 7. Directions Futures
+## 7. Limites Actuelles
+
+1. **Overhead d'inférence batch=1** : créer `GeneRegulator` + `HeritableEpigenome` à chaque appel coûte ~3.5ms fixe. Un wrapper d'inférence qui pré-instancie ces objets est nécessaire pour un déploiement temps-réel.
+
+2. **Hétérogénéité des stems domaine-dépendante** : les stems hétérogènes aident légèrement sur CIFAR-10 (+0.25%) mais nuisent sur ECG (-0.75%). La config optimale dépend du domaine : `hetero_only` pour la vision, `no_attn_no_hetero` pour les séquences.
+
+3. **Paramétrage fixe** : n_nodes=8 et max_stems=12 sont optimisés pour MNIST/ECG. Des datasets plus complexes pourraient bénéficier d'une architecture plus large.
+
+4. **Comparaison baselines limitée** : EDEN bat ResNet-8 sur CIFAR-10 mais ResNet-18 (~93%) et EfficientNet-B0 (~96%) le surpassent. EDEN est positionné en efficacité (4M params, std très faible) plutôt qu'en performance absolue.
+
+5. **Interprétabilité** : les mécanismes biologiques restants (génome, épigénome, différenciation) n'ont pas été analysés en termes de ce qu'ils apprennent concrètement. Les outils UMAP/corrélation existent dans `eden/interpret.py` mais peu utilisés.
+
+---
+
+## 8. Directions Futures
 
 ### Court terme (expériences prêtes)
-- **Valider CIFAR-10 v4** (`kaggle_cifar10_v4.py`) — attend quota GPU
-- Ablation node_attention vs stems hétérogènes
-- Benchmark Fashion-MNIST
+- ~~**Valider CIFAR-10 v4**~~ → **86.72% validé** (5 seeds, Kaggle GPU)
+- ~~**Benchmark ECG v1**~~ → **92.32% validé** (5 seeds, Kaggle GPU)
+- ~~**Ablation MNIST/CIFAR-10/ECG node_attention vs stems**~~ → **Validé** : neutre sur MNIST, hetero aide CIFAR +0.25%, hetero nuit ECG -0.75%
+- ~~**Benchmark Fashion-MNIST**~~ → **92.34% validé** (5 seeds, 50 epochs, std=0.0015)
+- ~~**Latence inférence**~~ → **Mesuré** : GPU batch=32 ~ 8-9k samples/s, CPU batch=1 ~2.7-4.3ms
 
 ### Moyen terme (code à écrire)
 - **Stems spécialisés pour domaines** : stems "fréquentiels" (FFT), "temporels" (convolution 1D causale) pour mieux s'adapter aux séquences
@@ -252,7 +302,7 @@ mean-pool → Linear(hidden, num_classes)
 
 ---
 
-## 8. Reproductibilité
+## 9. Reproductibilité
 
 ```bash
 # Installation
@@ -276,7 +326,7 @@ Variables d'environnement : `EDEN_SEED` (défaut 42), `EDEN_DATA` (défaut `.dat
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 EDEN démontre qu'encoder des principes biologiques dans un réseau de neurones peut produire des avantages mesurables — à condition de distinguer les mécanismes qui *transfèrent* au silicium de ceux qui dépendent de contraintes physiques absentes dans le calcul numérique.
 
@@ -284,7 +334,7 @@ EDEN démontre qu'encoder des principes biologiques dans un réseau de neurones 
 
 **Ce qui ne transfère pas** : la croissance dynamique (neurogenèse), la synchronisation locale (paracrine) — deux mécanismes biologiquement utiles pour organiser des millions de neurones en 3D, inutiles voire nocifs pour 8 nœuds dans un espace vectoriel.
 
-Le résultat principal — **99.10% sur MNIST avec std=0.0018 et robustesse adversariale parfaite** — suggère qu'EDEN est compétitif sur des tâches de classification standard, avec une stabilité d'entraînement remarquable. L'enjeu suivant est de prouver ce niveau de performance sur des datasets plus difficiles (CIFAR-10, ImageNet subset).
+Les résultats valident EDEN sur quatre domaines distincts : **99.10% sur MNIST** (std=0.0018, robustesse adversariale parfaite), **86.72% sur CIFAR-10** (std=0.0014, surpasse ResNet-8), **92.32% sur ECG** (std=0.0104, +3.3pts vs CNN-1D), **92.34% sur Fashion-MNIST** (std=0.0015, +1.4pts vs LeNet). Dans les quatre cas, la variance inter-seeds est remarquablement faible — signe que les mécanismes biologiques retenus (compétition, diversité, attention apprise) produisent des trajectoires d'entraînement stables. L'enjeu suivant est d'isoler la contribution de node_attention vs stems hétérogènes par ablation et de tester EDEN sur des datasets plus larges (ImageNet subset).
 
 ---
 

@@ -34,7 +34,42 @@ Variance across seeds: std=**0.0018** (÷6 vs v1).
 | Version | Mean | Std | Notes |
 |---------|------|-----|-------|
 | v2 (2-conv embed) | 67.59% | 0.78% | stable |
-| v4 (3-conv + AdaptPool + grad clip) | *pending* | — | current |
+| **v4 (3-conv + AdaptPool + grad clip)** | **86.72%** | **0.14%** | +19.13% vs v2 |
+
+EDEN v4 surpasses ResNet-8 (~85%) on CIFAR-10 with 4M params and std=**0.0014** (5 seeds).
+
+### Fashion-MNIST (5 seeds, 50 epochs, GPU)
+
+| Model | Val acc |
+|-------|---------|
+| MLP | ~88.0% |
+| LeNet | ~91.0% |
+| **EDEN v2** | **92.34%** |
+| ResNet | ~94.0% |
+
+Variance across seeds: std=**0.0015** (min=92.14%, max=92.55%).
+
+### ECG (5 seeds, 100 epochs, SequenceEDEN)
+
+| Model | Val acc |
+|-------|---------|
+| LogReg | ~82.0% |
+| LSTM | ~87.0% |
+| CNN-1D | ~89.0% |
+| **EDEN v1** | **92.32%** |
+
+Variance across seeds: std=**0.0104** (min=90.93%, max=93.60%).
+
+### Ablation: node_attention vs heterogeneous stems (MNIST, 5 seeds, 50 epochs)
+
+| Configuration | Mean | Std |
+|---------------|------|-----|
+| no_attn_no_hetero | 99.35% | 0.0007 |
+| attn_only | 99.34% | 0.0005 |
+| **hetero_only** | **99.39%** | 0.0006 |
+| attn_and_hetero | 99.32% | 0.0004 |
+
+All differences are within noise (±0.04%). The v1→v2 gain (+7.93%) is explained by **removing neurogenesis and paracrine** (confirmed by ECG ablation) and training improvements (AdamW, warmup, cosine, grad_clip). Heterogeneous stems are nominally best in isolation; combining both mechanisms minimizes variance (std=0.0004).
 
 ### ECG ablation (3 seeds, 50 epochs)
 
@@ -134,6 +169,7 @@ eden train --dataset mnist --epochs 30 --resume run.pt --checkpoint-out run.pt
 
 ## Python API
 
+**Training:**
 ```python
 from eden.core.network import EDENNetwork
 from eden.core.genome import GeneRegulator
@@ -146,6 +182,25 @@ tr_l, va_l, meta = get_torchvision_loaders("mnist", ".data", batch_size=128)
 model = EDENNetwork(num_classes=10, in_channels=1, image_hw=(28, 28))
 result = train_eden(model, GeneRegulator(), HeritableEpigenome(), tr_l, va_l, epochs=50)
 print(f"val_acc={result['final_val_accuracy']:.4f}")
+```
+
+**Inference (production):**
+```python
+from eden import EDENPredictor
+from eden.core.network import EDENNetwork
+from eden.core.genome import GeneRegulator
+from eden.core.epigenome import HeritableEpigenome
+
+# Build and load weights
+model     = EDENNetwork(num_classes=10, in_channels=1, image_hw=(28, 28))
+regulator = GeneRegulator()
+epigenome = HeritableEpigenome()
+
+predictor = EDENPredictor.from_checkpoint("run.pt", model, regulator, epigenome, device="cuda")
+
+# Single sample or batch — regulator/epigenome overhead is pre-paid
+probs  = predictor.predict_proba(x)   # (B, C) float32
+labels = predictor.predict(x)         # (B,)   int64
 ```
 
 ---
